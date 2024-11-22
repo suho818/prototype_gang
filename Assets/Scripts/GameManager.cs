@@ -1,24 +1,41 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Xml.Schema;
 using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using UnityEngine.XR;
+using MongoDB.Bson;
+using MongoDB.Driver;
+using UnityEngine.Networking;
 
 public class GameManager : MonoBehaviour
 {
     public GameObject[] applePrefabs; // apple1 ~ apple9 프리팹을 담을 배열
     public GameObject appleSelected;
-    
-    private int[,] grid = new int[17, 9];
-    private int[] verticalAppleNum = new int[17];
-    private int[] verticalRemovedAppleNum = new int[17];
+    public GameObject StartScreen;
+
+    public Toggle gameModeToggle;
+
+    private float startTouchTime = 0;
+    private float endTouchTime = 0;
+
+    private int gameEnd = 1;
+
+    private int Xnum = 7;
+    private int Ynum = 14;
+
+    private int[,] grid = new int[7, 14];
+    private int[] verticalAppleNum = new int[7];
+    private int[] verticalRemovedAppleNum = new int[7];
     private List<GameObject> appleObjects = new List<GameObject>();
     private List<IEnumerator> appleCoroutine = new List<IEnumerator>();
-    public float fallSpeed = 0.5f; // 사과가 한 칸 내려오는데 걸리는 시간
+    private List<int> time_margin = new List<int>();
+
+    public float fallSpeed = 1f; // 사과가 한 칸 내려오는데 걸리는 시간
 
     public int gameMethod = 1; // 0 = 드래그 , 1 = 터치
     public int touchNum = 0;
@@ -34,22 +51,30 @@ public class GameManager : MonoBehaviour
     public TextMeshProUGUI scoreText;
     private int score = 0;
     public TextMeshProUGUI timeText;
-    private float time = 0f;
+    private float gameTime = 0f;
+    public float endTime = 30f; // 게임 종료 시간
 
     public int gameMode = 0; //0: 기본모드, 1: 무한모드
 
+   
 
+    private string serverUrl = "https://fb8a-147-47-207-66.ngrok-free.app";
 
     void Start()
     {
+        
+
         Vector3 screenBottomLeft = Camera.main.ScreenToWorldPoint(new Vector3(0, 0, Camera.main.nearClipPlane));
         Vector3 screenTopRight = Camera.main.ScreenToWorldPoint(new Vector3(Screen.width, Screen.height, Camera.main.nearClipPlane));
 
         width = screenTopRight.x - screenBottomLeft.x;
         height = screenTopRight.y - screenBottomLeft.y;
 
-        InitializeGrid();
-        UpdateScoreUI();
+        gameModeToggle.onValueChanged.AddListener(OnToggleValueChanged);
+
+        InsertExperiment("test2", 10, 0.6f);
+
+       
     }
 
     public void RestartGame()
@@ -66,12 +91,12 @@ public class GameManager : MonoBehaviour
 
     void InitializeGrid()
     {
-        verticalAppleNum = new int[17];
-        verticalRemovedAppleNum = new int[17];
+        verticalAppleNum = new int[Xnum];
+        verticalRemovedAppleNum = new int[Xnum];
 
-        for (int x = 0; x < 17; x++)
+        for (int x = 0; x < Xnum; x++)
         {
-            for (int y = 0; y < 9; y++)
+            for (int y = 0; y < Ynum; y++)
             {
                 grid[x, y] = UnityEngine.Random.Range(1, 10); // 1~9 랜덤 숫자 배정
                 verticalAppleNum[x] += 1;
@@ -84,12 +109,12 @@ public class GameManager : MonoBehaviour
     void DisplayGrid()
     {
         appleObjects.Clear();
-        for (int x = 0; x < 17; x++)
+        for (int x = 0; x < Xnum; x++)
         {
-            for (int y = 0; y < 9; y++)
+            for (int y = 0; y < Ynum; y++)
             {
                 int number = grid[x, y] - 1; // 1~9를 0~8 인덱스로 맞춤
-                GameObject apple = Instantiate(applePrefabs[number], new Vector3(x-17/2, y-9/2, 0), Quaternion.identity);
+                GameObject apple = Instantiate(applePrefabs[number], new Vector3(x-Xnum/2, y-Ynum/2, 0), Quaternion.identity);
                 apple.name = $"Apple_{x}_{y}"; // 오브젝트 이름 설정
 
                 GameObject as_img = Instantiate(appleSelected, new Vector3(0,0,0), Quaternion.identity);
@@ -104,7 +129,7 @@ public class GameManager : MonoBehaviour
                 {
                     appleComponent = apple.AddComponent<Apple>();
                 }
-                appleComponent.id = y * 17 + x;
+                appleComponent.id = y * Xnum + x;
                 appleComponent.number = number + 1; // 실제 숫자를 설정
                 appleComponent.coordinate = new int[] {x, y};
                 appleComponent.remainingApple = y;
@@ -117,21 +142,34 @@ public class GameManager : MonoBehaviour
    
         void Update()
         {
-        // R 키를 누르면 재시작
-        if (Input.GetKeyDown(KeyCode.R))
-        {
-            RestartGame();
-        }
+        
+        
 
-        if (IsTouchInput())
+        if (gameEnd == 0)
+        {
+            gameTime += Time.deltaTime; // 프레임 간 경과 시간 누적
+            timeText.text = Mathf.Round(endTime - gameTime) + "";
+            if (gameTime >= endTime)
+            {
+                EndGame();
+                // Update 실행 중단
+            }
+            // R 키를 누르면 재시작
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                RestartGame();
+            }
+
+            if (IsTouchInput())
             {
                 HandleTouchInput();
-            
+
             }
             else
             {
-           //     HandleMouseInput();
-           
+                //     HandleMouseInput();
+
+            }
         }
         }
 
@@ -148,10 +186,11 @@ public class GameManager : MonoBehaviour
 
         if (gameMethod == 0)
         {
-            Debug.Log("터치0");
+          
             switch (touch.phase)
             {
                 case TouchPhase.Began: // 터치 시작
+                    startTouchTime = Time.time;
                     selectedApples.Clear();
                     startPosition = touch.position;
                     endPosition = touch.position;
@@ -169,6 +208,8 @@ public class GameManager : MonoBehaviour
                     break;
 
                 case TouchPhase.Ended: // 터치 종료
+                    endTouchTime = Time.time;
+                    
                     SelectApplesInArea();
                     selectionBox.gameObject.SetActive(false);
                     CheckAndRemoveApples();
@@ -177,22 +218,24 @@ public class GameManager : MonoBehaviour
         }
         else if (gameMethod == 1)
                 {
-            Debug.Log("터치1");
+            
 
             if (touchNum == 0)
             {
-                switch (touch.phase)
-                {
-                    case TouchPhase.Began: // 터치 시작
-                        selectedApples.Clear();
-                        startPosition = touch.position;
-                        endPosition = touch.position;
-                        UpdateSelectionBox();
-                        selectionBox.gameObject.SetActive(true);
-                        break;
 
-                    }
-                touchNum = 1;
+                if (touch.phase == TouchPhase.Began)
+
+                {
+                    selectedApples.Clear();
+                    startPosition = touch.position;
+                    endPosition = touch.position;
+                    UpdateSelectionBox();
+                    selectionBox.gameObject.SetActive(true);
+                    
+                    touchNum = 1;
+                }
+                    
+                
             }
             else
             {if (touchNum == 1)
@@ -266,6 +309,7 @@ public class GameManager : MonoBehaviour
 
         foreach(var apple in appleObjects)
         {
+            
             apple.GetComponent<Apple>().isSelected = false;
             apple.GetComponent<Apple>().SetSelected();
 
@@ -326,7 +370,7 @@ public class GameManager : MonoBehaviour
             {
                 
                 Vector2 pos = apple.transform.position;
-                grid[(int)pos.x + 8, (int)pos.y + 4] = 0;// 사과 제거 시 0으로 표시
+               // grid[(int)pos.x + 8, (int)pos.y + 4] = 0;// 사과 제거 시 0으로 표시
                 Apple AP = apple.GetComponent<Apple>();
                 AP.ShootAndDestroy();
                 appleObjects.Remove(apple);
@@ -339,10 +383,10 @@ public class GameManager : MonoBehaviour
                 CreateApple(AP.coordinate[0]);
           
                 
-                for (int id_num = AP.id; id_num < 17 * verticalAppleNum[AP.coordinate[0]]; id_num += 17)
+                for (int id_num = AP.id; id_num < Xnum * verticalAppleNum[AP.coordinate[0]]; id_num += Xnum)
                 {
                     ApplyGravity(id_num);
-                    PrintGrid();
+                   
                 }
 
                 
@@ -352,29 +396,16 @@ public class GameManager : MonoBehaviour
         }
     }
 
-        void ApplyGravity(int id)
+    void ApplyGravity(int id)
+    {
+        GameObject apple = FindAppleAtId(id);
+        if (apple != null)
         {
-            GameObject apple = FindAppleAtId(id);
-            if (apple != null)
-            {
-                Vector3 targetPosition = new Vector3(apple.transform.position.x, apple.GetComponent<Apple>().remainingApple - 4, 0);
-                apple.GetComponent<Apple>().StartFalling(targetPosition);
-            }
-
+            Vector3 targetPosition = new Vector3(apple.transform.position.x, apple.GetComponent<Apple>().remainingApple - (Ynum+1)/2, 0);
+            apple.GetComponent<Apple>().StartFalling(targetPosition);
         }
-        void PrintGrid()
-        {
-            string gridOutput = "";
-
-            for (int y = 0; y < 9; y++)
-            {
-                for (int x = 0; x < 17; x++)
-                {
-                    //gridOutput += gridAppleRemaining[x, y] + "\t"; // 각 요소 사이에 탭으로 구분
-                }
-                gridOutput += "\n"; // 한 행이 끝날 때 줄 바꿈
-            }
-}
+    }
+        
 
         GameObject FindAppleAtCoordinate(int x, int y)
         {
@@ -400,9 +431,9 @@ public class GameManager : MonoBehaviour
             .OrderByDescending(apple => apple.GetComponent<Apple>().coordinate[1])
             .FirstOrDefault().transform.position.y+1;
         
-        Y = Y > 5 ? Y : 5;
+        Y = Y > 7 ? Y : 7;
       
-        GameObject apple = Instantiate(applePrefabs[number], new Vector3(x - 17 / 2, Y, 0), Quaternion.identity);
+        GameObject apple = Instantiate(applePrefabs[number], new Vector3(x - Xnum / 2, Y, 0), Quaternion.identity);
         apple.name = $"Apple_{x}_{y}"; // 오브젝트 이름 설정
 
         GameObject as_img = Instantiate(appleSelected, new Vector3(0, 0, 0), Quaternion.identity);
@@ -417,10 +448,89 @@ public class GameManager : MonoBehaviour
         {
             appleComponent = apple.AddComponent<Apple>();
         }
-        appleComponent.id = y * 17 + x;
+        appleComponent.id = y * Xnum + x;
         appleComponent.number = number + 1; // 실제 숫자를 설정
         appleComponent.coordinate = new int[] { x, y };
         appleComponent.remainingApple = verticalRemovedAppleNum[x] - 1;
     }
 
+    public void StartGame()
+    {
+        foreach (var apple in appleObjects)
+        {
+            if (apple != null )
+            {
+                Destroy(apple);
+            }
+        }
+        appleObjects.Clear();
+        InitializeGrid();
+        score = 0;
+        gameTime = 0;
+        gameEnd = 0;
+        touchNum = 0;
+        UpdateScoreUI();
+        StartScreen.SetActive(false);
+        
+
+    }
+
+    void EndGame()
+    {
+        StartScreen.SetActive(true);
+        gameEnd = 1;
+    }
+    void OnToggleValueChanged(bool isOn)
+    {
+        if (isOn)
+        {
+            gameMethod = 1;
+        }
+        else
+        {
+            gameMethod = 0;
+        }
+    }
+
+    public void InsertExperiment(string experimentName, int score, float duration)
+    {
+        StartCoroutine(InsertExperimentCoroutine(experimentName, score, duration));
+    }
+
+    private IEnumerator InsertExperimentCoroutine(string experimentName, int score, float duration)
+    {
+        // JSON 데이터 생성
+        var jsonData = JsonUtility.ToJson(new ExperimentData
+        {
+            experimentName = experimentName,
+            score = score,
+            duration = duration
+        });
+
+        using (UnityWebRequest request = new UnityWebRequest($"{serverUrl}/experiments", "POST"))
+        {
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonData);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                Debug.Log("데이터 삽입 성공");
+            }
+            else
+            {
+                Debug.LogError($"오류: {request.error}");
+            }
+        }
+    }
+}
+[System.Serializable]
+public class ExperimentData
+{
+    public string experimentName;
+    public int score;
+    public float duration;
 }

@@ -12,7 +12,7 @@ public class Apple : MonoBehaviour
     public int[] coordinate = new int[2]; // 사과의 현재 grid상 좌표
 
     private Coroutine fallCoroutine;
-    public float fallSpeed = 3f; // 한 칸 내려오는 속도
+    public float fallSpeed = 4f; // 한 칸 내려오는 속도
 
     public float launchForce = 300f; // 위로 발사하는 힘
     public float horizontalOffset = 0.5f; // 좌우로 튈 수 있는 최대 거리
