@@ -11,6 +11,7 @@ using UnityEngine.XR;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using UnityEngine.Networking;
+using Newtonsoft.Json;
 
 public class GameManager : MonoBehaviour
 {
@@ -33,12 +34,17 @@ public class GameManager : MonoBehaviour
     private int[] verticalRemovedAppleNum = new int[7];
     private List<GameObject> appleObjects = new List<GameObject>();
     private List<IEnumerator> appleCoroutine = new List<IEnumerator>();
-    private List<int> time_margin = new List<int>();
+    public List<float> time_margin = new List<float>();
+
+    public int rectNum = 0;
+    public int rectSucNum = 0;
 
     public float fallSpeed = 1f; // 사과가 한 칸 내려오는데 걸리는 시간
 
     public int gameMethod = 1; // 0 = 드래그 , 1 = 터치
     public int touchNum = 0;
+
+    public float marginAvg;
 
     private float width;
     private float height;
@@ -52,13 +58,13 @@ public class GameManager : MonoBehaviour
     private int score = 0;
     public TextMeshProUGUI timeText;
     private float gameTime = 0f;
-    public float endTime = 30f; // 게임 종료 시간
+    public float endTime = 10f; // 게임 종료 시간
 
     public int gameMode = 0; //0: 기본모드, 1: 무한모드
 
    
 
-    private string serverUrl = "https://fb8a-147-47-207-66.ngrok-free.app";
+    private string serverUrl = "https://port-0-proto-server-m3ueku3a6d0915f0.sel4.cloudtype.app";
 
     void Start()
     {
@@ -72,8 +78,7 @@ public class GameManager : MonoBehaviour
 
         gameModeToggle.onValueChanged.AddListener(OnToggleValueChanged);
 
-        InsertExperiment("test2", 10, 0.6f);
-
+       
        
     }
 
@@ -209,7 +214,8 @@ public class GameManager : MonoBehaviour
 
                 case TouchPhase.Ended: // 터치 종료
                     endTouchTime = Time.time;
-                    
+                    float timeDifference = endTouchTime - startTouchTime;
+                    time_margin.Add(timeDifference);
                     SelectApplesInArea();
                     selectionBox.gameObject.SetActive(false);
                     CheckAndRemoveApples();
@@ -226,6 +232,7 @@ public class GameManager : MonoBehaviour
                 if (touch.phase == TouchPhase.Began)
 
                 {
+                    startTouchTime = Time.time;
                     selectedApples.Clear();
                     startPosition = touch.position;
                     endPosition = touch.position;
@@ -253,6 +260,9 @@ public class GameManager : MonoBehaviour
                 {
                     if (touch.phase == TouchPhase.Ended)
                     {
+                        endTouchTime = Time.time;
+                        float timeDifference = endTouchTime - startTouchTime;
+                        time_margin.Add(timeDifference);
                         UpdateSelectionBox();
                         SelectApplesInArea();
 
@@ -363,9 +373,10 @@ public class GameManager : MonoBehaviour
             
             sum += appleComponent.number; // Apple 스크립트에 숫자 정보가 있다고 가정
         }
-
+        rectNum += 1;
         if (sum == 10)
         {
+            rectSucNum += 1;
             foreach (var apple in selectedApples)
             {
                 
@@ -469,6 +480,13 @@ public class GameManager : MonoBehaviour
         gameTime = 0;
         gameEnd = 0;
         touchNum = 0;
+        rectNum = 0;
+        rectSucNum = 0;
+        time_margin.Clear();
+        if(gameMethod == 0)
+        {
+            rectNum -= 1;
+        }
         UpdateScoreUI();
         StartScreen.SetActive(false);
         
@@ -477,6 +495,9 @@ public class GameManager : MonoBehaviour
 
     void EndGame()
     {
+        marginAvg = time_margin.Average();
+        InsertExperiment("EX", score, time_margin, rectSucNum/rectNum);
+        
         StartScreen.SetActive(true);
         gameEnd = 1;
     }
@@ -492,20 +513,22 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    public void InsertExperiment(string experimentName, int score, float duration)
+    public void InsertExperiment(string experimentName, int score, List<float> margin, float successRate)
     {
-        StartCoroutine(InsertExperimentCoroutine(experimentName, score, duration));
+        StartCoroutine(InsertExperimentCoroutine(experimentName, score, margin, successRate));
     }
 
-    private IEnumerator InsertExperimentCoroutine(string experimentName, int score, float duration)
+    private IEnumerator InsertExperimentCoroutine(string experimentName, int score, List<float> margin, float successRate)
     {
         // JSON 데이터 생성
-        var jsonData = JsonUtility.ToJson(new ExperimentData
+        var jsonData = JsonConvert.SerializeObject(new ExperimentData
         {
             experimentName = experimentName,
             score = score,
-            duration = duration
-        });
+            duration = margin,
+            durationAvg = marginAvg,
+            successRate = successRate
+        }) ;
 
         using (UnityWebRequest request = new UnityWebRequest($"{serverUrl}/experiments", "POST"))
         {
@@ -532,5 +555,7 @@ public class ExperimentData
 {
     public string experimentName;
     public int score;
-    public float duration;
+    public List<float> duration;
+    public float durationAvg;
+    public float successRate;
 }

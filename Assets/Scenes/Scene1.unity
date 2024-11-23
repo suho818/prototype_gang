@@ -1172,13 +1172,17 @@ MonoBehaviour:
   appleSelected: {fileID: 7471225189224246889, guid: 32d9c77934078754bb62c4f6ba76c45e, type: 3}
   StartScreen: {fileID: 621869251}
   gameModeToggle: {fileID: 1091737722}
+  time_margin: []
+  rectNum: 0
+  rectSucNum: 0
   fallSpeed: 0.5
   gameMethod: 0
   touchNum: 0
+  marginAvg: 0
   selectionBox: {fileID: 214665149}
   scoreText: {fileID: 12018214}
   timeText: {fileID: 1584014718}
-  endTime: 30
+  endTime: 60
   gameMode: 1
 --- !u!4 &1004880046
 Transform:
@@ -2286,6 +2290,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Delegates:
   - eventID: 4
+    callback:
+      m_PersistentCalls:
+        m_Calls: []
+  - eventID: 3
     callback:
       m_PersistentCalls:
         m_Calls:
